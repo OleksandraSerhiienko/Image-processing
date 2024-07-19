@@ -1,18 +1,10 @@
-import json
 import cv2
-import os
+import os, sys
+from random import shuffle
 from ultralytics import YOLO
-from YOLOv8_predict import extract_detections_pt
-from utils_changed import parse_coco_dataset, crop_box, draw_objects, calculate_iou
-import shutil
-
-folder_with_images_val = '/data/datasets/model_validation/split_train_val/val_dir/images'
-folder_with_images_train = '/data/datasets/model_validation/split_train_val/train_dir/images'
-
-coco_annotations_file = '/data/datasets/model_validation/coco/annotations/instances_default.json'
-vis_images = 'vis_images'
-yolo_model_name = "yolov8n"
-#  functions
+from yolo8_model_predict import extract_detections_pt
+from utils_changed import parse_coco_dataset, parse_labels_set,  crop_box, draw_objects, calculate_iou
+import argparse
 def draw_and_save_coco(coco_annotations, result_folder):
     os.makedirs(result_folder, exist_ok=True)
     for image_filepath, objects in coco_annotations.items():
@@ -36,6 +28,7 @@ def run_image_with_yolo(image, model):
             detections.append({'label': label, 'ltrb': box, 'score': score})
     return detections
 
+
 def process_images(image_filepaths, model, annotations={}, result_folder=None):
     if result_folder: os.makedirs(result_folder, exist_ok=True)
     images_annotations_detections = {}
@@ -47,25 +40,20 @@ def process_images(image_filepaths, model, annotations={}, result_folder=None):
         if image is None:
             #print(f"Cannot read image. Check path {image_filepath}")
             continue
-        # get annotated objects if annotations provided
         annotated_objects = annotations.get(image_filepath, [])
-        # get detections
         detections = run_image_with_yolo(image, model)
-        # draw objects and save an image if required
+        images_annotations_detections[image_filepath] = {
+            "annotated_objects": annotated_objects,
+            "detections": detections
+        }
         if result_folder:
             result_filepath = os.path.join(result_folder, os.path.split(image_filepath)[-1])
             image = draw_objects(image, annotated_objects)
             image = draw_objects(image, detections)
             cv2.imwrite(result_filepath, image)
-        #  keep results for next evaluation
-        images_annotations_detections[image_filepath] = {
-            "annotated_objects": annotated_objects,
-            "detections": detections
-        }
+            #for v in images_annotations_detections[image_filepath]["annotated_objects"]: print('annotated: ' + str(v))
+            #for v in images_annotations_detections[image_filepath]["detections"]: print('detected: ' + str(v))
     return images_annotations_detections
-coco_annotations = parse_coco_dataset(folder_with_images_val, coco_annotations_file)
-model = YOLO(yolo_model_name)
-images_annotations_detections = process_images(coco_annotations.keys(), model, coco_annotations, vis_images)
 
 def compute_ious(img_filepath, data):
     results = []
@@ -90,12 +78,9 @@ def check_file_existence(filepath):
         #print(f'Warning file {filepath} does not exist')
         return False
     return True
- 
-img_filepaths = list(coco_annotations.keys())
-for img_filepath in img_filepaths:
-    if check_file_existence(img_filepath):
-        results = compute_ious(img_filepath, images_annotations_detections[img_filepath])
-def get_tp_fn_fp(ann_obj, detections, iou_threshold=0.7, conf_threshold=0.8):
+
+
+def get_tp_fn_fp(ann_obj, detections, iou_threshold=0.7, conf_threshold=0.7):
     def is_in(box, label, lst, iou_threshold, conf_threshold):
         for obj in lst:
             if not label == obj['label']: continue
@@ -114,7 +99,7 @@ def get_tp_fn_fp(ann_obj, detections, iou_threshold=0.7, conf_threshold=0.8):
         else: fp += 1   
     return tp, fn, fp
 
-def evaluate(images_annotations_detections, iou_threshold=0.7, conf_threshold=0.8):
+def evaluate(images_annotations_detections, iou_threshold=0.7, conf_threshold=0.7):
     tps, fns, fps = 0, 0, 0
     for _, info in images_annotations_detections.items():
         annotated_obj = info["annotated_objects"]
@@ -129,8 +114,39 @@ def evaluate(images_annotations_detections, iou_threshold=0.7, conf_threshold=0.
     f1s = (2*precision*recall)/(precision+recall) if precision+recall>0 else 0.0
     return tps, fns, fps, precision, recall, f1s
 
-img_filepaths = list(coco_annotations.keys())
-image_filepath  = img_filepaths[0]
 
-tps, fns, fps, precision, recall, f1s = evaluate(images_annotations_detections, iou_threshold=0.7, conf_threshold=0.8)
-print(f'Precision:{precision}, recal:{recall}, f1score:{f1s}')
+def main(args):
+    model_path = args.model_path
+    annotation_filepath = args.labels
+    images_folder = args.images
+    vis_folder = args.save_path
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path, exist_ok=True)
+    if annotation_filepath.endswith('.json'):
+        annotations = parse_coco_dataset(images_folder, annotation_filepath)
+    else:
+        annotations = parse_labels_set(images_folder, annotation_filepath)
+    model = YOLO(model_path)
+
+    images_annotations_detections = process_images(annotations.keys(), model, annotations, vis_folder)
+    tps, fns, fps, precision, recall, f1s = evaluate(images_annotations_detections, iou_threshold=0.5, conf_threshold=0.189)
+    print(f'TPS:{tps}, FNS:{fns}, FPS:{fps}, Precision:{precision}, recall:{recall}, f1score:{f1s}')
+    print(f'Visualized images saved to {vis_folder}')
+def parse_args():
+    parser = argparse.ArgumentParser("YOLO model validation with metrix calculation")
+    parser.add_argument('-ann','--labels', type=str, required=True, help="Path to folder with labels")
+    parser.add_argument('-img', '--images', type=str, required=True, help="Path to folder with images")
+    parser.add_argument('-e', '--epochs', type=int, default=25, help="Number of epochs for validation")
+    parser.add_argument('-b', '--batch', type=float, default=16, help="Batch size for validation")
+    parser.add_argument('-c', '--conf', type=float, default=0.001, help="Confidence threshold for validation")
+    parser.add_argument('-iou', '--iou', type=float, default=0.6, help="IOU for validation")
+    parser.add_argument('--imgsz', type=int, default=640, help="Image size for validation")
+    parser.add_argument('--device', type=str, default='cuda:0', help="Device to run the validation on")
+    parser.add_argument('-m', '--model_path', type=str,required=True, default='yolov8n.pt', help="Path to the YOLO model")
+    parser.add_argument('-s', '--save_path', type=str,required=True, default='./results', help="Path to save the results")
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)
+ 
