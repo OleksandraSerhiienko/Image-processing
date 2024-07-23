@@ -89,6 +89,7 @@ def get_tp_fn_fp(ann_obj, detections, iou_threshold=0.7, conf_threshold=0.7):
             return True
         return False
     
+    tp = {}
     tp, fn = 0, 0
     for gt in ann_obj:
         if is_in(gt['ltrb'], gt['label'], detections, iou_threshold, conf_threshold): tp += 1
@@ -96,7 +97,9 @@ def get_tp_fn_fp(ann_obj, detections, iou_threshold=0.7, conf_threshold=0.7):
     fp = 0
     for pred in detections:
         if is_in(pred['ltrb'], pred['label'], ann_obj, iou_threshold, conf_threshold): continue
-        else: fp += 1   
+        else: 
+            #if pred['ltrb'][2] - pred['ltrb'][0] < 24 or pred['ltrb'][3] - pred['ltrb'][1] < 24: continue
+            fp += 1   
     return tp, fn, fp
 
 def evaluate(images_annotations_detections, iou_threshold=0.7, conf_threshold=0.7):
@@ -120,12 +123,13 @@ def main(args):
     annotation_filepath = args.labels
     images_folder = args.images
     vis_folder = args.save_path
+    img_ext = args.img_ext
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path, exist_ok=True)
     if annotation_filepath.endswith('.json'):
         annotations = parse_coco_dataset(images_folder, annotation_filepath)
     else:
-        annotations = parse_labels_set(images_folder, annotation_filepath)
+        annotations = parse_labels_set(images_folder, annotation_filepath, img_ext)
     model = YOLO(model_path)
 
     images_annotations_detections = process_images(annotations.keys(), model, annotations, vis_folder)
@@ -136,6 +140,7 @@ def parse_args():
     parser = argparse.ArgumentParser("YOLO model validation with metrix calculation")
     parser.add_argument('-ann','--labels', type=str, required=True, help="Path to folder with labels")
     parser.add_argument('-img', '--images', type=str, required=True, help="Path to folder with images")
+    parser.add_argument('-ext', '--img-ext', type = str ,default='.jpg', help='Image extension')
     parser.add_argument('-e', '--epochs', type=int, default=25, help="Number of epochs for validation")
     parser.add_argument('-b', '--batch', type=float, default=16, help="Batch size for validation")
     parser.add_argument('-c', '--conf', type=float, default=0.001, help="Confidence threshold for validation")
