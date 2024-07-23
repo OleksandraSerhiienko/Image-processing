@@ -32,7 +32,6 @@ def crop_box(box, img_height_width):
 def parse_coco_dataset(images_folder, annotations_file):
     assert(os.path.isdir(images_folder)),f"Images folder does not exist. Check path: {images_folder}"
     assert(os.path.isfile(annotations_file)),f"Annotations file does not exist. Check path: {annotations_file}"
-
     coco_annotations = json.load(open(annotations_file))
     image_id_to_filename = {image['id'] : image['file_name'] for image in coco_annotations['images']}
     category_id_to_name = {category["id"] : category["name"] for category in coco_annotations["categories"]}
@@ -49,15 +48,59 @@ def parse_coco_dataset(images_folder, annotations_file):
         annotations[image_filepath].append({"label": category_name, "ltrb": [l, t, r, b]})
     return annotations
 
+def parse_labels_set(images_folder, ann_folder, img_ext):
+    assert(os.path.isdir(images_folder)),f"Images folder does not exist. Check path: {images_folder}"
+    assert(os.path.isdir(ann_folder)),f"Annotations file does not exist. Check path: {ann_folder}"
+    category_id_to_name = {
+        0: 'person',
+        1: ' bike', 
+        2: 'car', 
+        3: 'sign'}
+    annotations = defaultdict(list)
+    annotation_files = os.listdir(ann_folder)
+    #print(f'Annotation files:{annotation_files}')
+    for ann_file in os.listdir(ann_folder):
+        ann_file_path = os.path.join(ann_folder, ann_file)
+        if not os.path.isfile(ann_file_path):
+            print(f'skippign non-file:{ann_file_path}')
+        with open(ann_file_path, 'r') as file:
+            lines = file.readlines()
+        image_filename = os.path.splitext(ann_file)[0] + img_ext
+        image_filepath = os.path.join(images_folder, image_filename)
+        if not os.path.isfile(image_filepath):
+            print(f'image not found:{image_filepath}')
+            continue
+        assert(os.path.isfile(image_filepath)),f"Cannot find annotated image in provided folder. Check path: {image_filepath}"
+        image = cv2.imread(image_filepath)
+        im_h, im_w = image.shape[:2]
+        for line in lines:
+            parts = line.strip().split()
+            category_id = int(parts[0])
+            cx, cy, w, h = [float(el) for el in parts[1:5]]
+            cx *= im_w
+            cy *= im_h
+            w *= im_w
+            h *= im_h
+            l = cx - w/2
+            t = cy - h/2
+            r, b = l + w, t + h
+            if category_id not in category_id_to_name:
+                #print(f'unknown category_id in file {ann_file}')
+                continue
+            category_name = category_id_to_name[category_id]
+            annotations[image_filepath].append({"label": category_name, "ltrb": [l, t, r, b]})
+    return annotations
+
+
 def draw_object(image, obj):
     l, t, r, b = crop_box(obj["ltrb"], image.shape[:2])
-    cv2.rectangle(image, (int(l), int(t)), (int(r), int(b)), (0, 255, 0), 2)
     text = obj["label"]
     color = (0, 255, 0)
     if "score" in obj:
         text += f" ({round(obj['score'], 2)})"
         color = (255, 0, 0)
     cv2.putText(image, text, (int(l), int(t) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    cv2.rectangle(image, (int(l), int(t)), (int(r), int(b)), color, 2)
     return image
 
 def draw_objects(image, objects):
