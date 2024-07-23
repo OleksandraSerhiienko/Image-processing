@@ -26,6 +26,7 @@ def read_coco_to_yolo(coco_json_file, target_labels={}, sanity=False):
         target_coco_categories = {cat['id']: id for id, cat in enumerate(coco_data['categories'])}
     
     coco_categories = {cat['id']: cat['name'] for cat in coco_data['categories']}  # categories id:name from coco.json
+    print(coco_categories)
     target_labels = {yolo_id: coco_categories[coco_id] for coco_id, yolo_id in target_coco_categories.items()}  # categories id:name in yolo format
     
     yolo_dict = defaultdict(list)
@@ -34,7 +35,6 @@ def read_coco_to_yolo(coco_json_file, target_labels={}, sanity=False):
     for ann in coco_data['annotations']:
         category_id = ann['category_id']
         class_id = target_coco_categories.get(category_id, None)
-        
         if class_id is None and target_labels:
             continue
         
@@ -43,6 +43,7 @@ def read_coco_to_yolo(coco_json_file, target_labels={}, sanity=False):
         file_name = os.path.basename(image_info['file_name'])
         
         x, y, w, h = ann['bbox']
+        #if w <= 24 or h <= 24:  continue
         x_center = float(x + w / 2) / image_info["width"]
         y_center = float(y + h / 2) / image_info["height"]
         width = float(w) / image_info["width"]
@@ -51,14 +52,13 @@ def read_coco_to_yolo(coco_json_file, target_labels={}, sanity=False):
         yolo_ann = f"{class_id} {x_center} {y_center} {width} {height}"
         yolo_dict[file_name].append(yolo_ann)
         sanity_images.add(file_name)
-    
     if sanity:
         sanity_images = list(sanity_images)
         random.shuffle(sanity_images)
         sanity_images = sanity_images[:10]
         yolo_dict = {img: yolo_dict[img] for img in sanity_images}
-    
-    return yolo_dict, target_labels
+    yolo_dict_new = {img:bboxes for img, bboxes in yolo_dict.items() if bboxes}
+    return yolo_dict_new, target_labels
  
 def create_yolo_label_txts(yolo_dict, labels_dir):
     clear_directory(labels_dir)
