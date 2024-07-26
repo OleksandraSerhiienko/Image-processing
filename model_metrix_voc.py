@@ -152,6 +152,7 @@ def main(args):
     images_folder = args.images
     vis_folder = args.save_path
     img_ext = args.img_ext
+    num_iterations = 100
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path, exist_ok=True)
     annotations={}
@@ -161,7 +162,7 @@ def main(args):
         print('No annotations by this path')
     model = YOLO(model_path)
     images_filepaths = [os.path.join(images_folder, img) for img in os.listdir(images_folder) if img.endswith(img_ext)]
-    images_annotations_detections = process_images(images_filepaths, model, annotations, vis_folder)
+    images_annotations_detections = process_images(images_filepaths, model, annotations, num_iterations, vis_folder)
     tps, fns, fps, precision, recall, f1s = evaluate(images_annotations_detections, args.target_labels, iou_threshold=args.iou, conf_threshold=args.conf)
     print(f'TPS:{tps}, FNS:{fns}, FPS:{fps}, Precision:{precision}, recall:{recall}, f1score:{f1s}')
     print(f'Visualized images saved to {vis_folder}')
