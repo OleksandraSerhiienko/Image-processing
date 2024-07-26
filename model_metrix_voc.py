@@ -2,6 +2,7 @@ import cv2
 import os
 from random import shuffle
 from ultralytics import YOLO
+import time
 from yolo8_model_predict import extract_detections_pt
 from utils_changed import crop_box, draw_objects, calculate_iou
 from annotation_parsers import parse_voc_folder
@@ -17,9 +18,16 @@ def draw_and_save_coco(coco_annotations, result_folder):
         result_filepath = os.path.join(result_folder, os.path.split(image_filepath)[-1])
         cv2.imwrite(result_filepath, image)
 
-def run_image_with_yolo(image, model):
+def run_image_with_yolo(image, model, num_iterations=100):
+    total_time = 0
     detections = []
-    predicted_data = model(image)
+    for _ in range(num_iterations):
+        start_time = time.time()
+        predicted_data = model(image)
+        end_time = time.time()
+        total_time +=end_time-start_time 
+    average_time = total_time/num_iterations
+    print(f'Average inference time over {num_iterations} iterations: {average_time} seconds')
     for pred in predicted_data:
         dets = extract_detections_pt(pred)
         for det in dets:
@@ -27,26 +35,37 @@ def run_image_with_yolo(image, model):
             score = det['score']
             box = crop_box(det['ltrb'], image.shape[:2])
             detections.append({'label': label, 'ltrb': box, 'score': score})
-    return detections
+    return detections, average_time
 
 
-def process_images(image_filepaths, model, annotations={}, result_folder=None):
-    if result_folder: os.makedirs(result_folder, exist_ok=True)
+def process_images(image_filepaths, model, annotations={}, num_iterations=100, result_folder=None):
+    if result_folder:
+        os.makedirs(result_folder, exist_ok=True)
+    
     images_annotations_detections = {}
-    for image_filepath in image_filepaths:
+    total_inference_time = 0
+    num_images = len(image_filepaths)
+ 
+    for i, image_filepath in enumerate(image_filepaths):
+        print(f'I:{i}')
         if not os.path.isfile(image_filepath):
+            print(f"File {image_filepath} does not exist")
             continue
-        # read image
+        
         image = cv2.imread(image_filepath)
         if image is None:
-            #print(f"Cannot read image. Check path {image_filepath}")
+            print(f"Cannot read image at {image_filepath}")
             continue
+        
         annotated_objects = annotations.get(os.path.split(image_filepath)[-1], [])
-        detections = run_image_with_yolo(image, model)
+        detections, average_time = run_image_with_yolo(image, model, num_iterations=100)
+        total_inference_time += average_time
+        print(f'Total inference time:{total_inference_time}')
         images_annotations_detections[image_filepath] = {
             "annotated_objects": annotated_objects,
             "detections": detections
         }
+        
         if result_folder:
             result_filepath = os.path.join(result_folder, os.path.split(image_filepath)[-1])
             image = draw_objects(image, annotated_objects)
@@ -54,8 +73,18 @@ def process_images(image_filepaths, model, annotations={}, result_folder=None):
             cv2.imwrite(result_filepath, image)
             #for v in images_annotations_detections[image_filepath]["annotated_objects"]: print('annotated: ' + str(v))
             #for v in images_annotations_detections[image_filepath]["detections"]: print('detected: ' + str(v))
+        # Log progress
+        if i % 100 == 0:
+            print(f"Processed {i}/{num_images} images")
+    
+    if num_images > 0:
+        overall_average_inference_time = total_inference_time / num_images
+    else:
+        overall_average_inference_time = 0
+    
+    print(f'Overall average inference time per image over {num_iterations} iterations: {overall_average_inference_time} seconds')
+    
     return images_annotations_detections
-
 def compute_ious(img_filepath, data):
     results = []
     ground_truth_data = data['annotated_objects']
