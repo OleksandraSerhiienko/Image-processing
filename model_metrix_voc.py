@@ -73,10 +73,6 @@ def process_images(image_filepaths, model, annotations={}, num_iterations=100, r
             cv2.imwrite(result_filepath, image)
             #for v in images_annotations_detections[image_filepath]["annotated_objects"]: print('annotated: ' + str(v))
             #for v in images_annotations_detections[image_filepath]["detections"]: print('detected: ' + str(v))
-        # Log progress
-        if i % 100 == 0:
-            print(f"Processed {i}/{num_images} images")
-    
     if num_images > 0:
         overall_average_inference_time = total_inference_time / num_images
     else:
